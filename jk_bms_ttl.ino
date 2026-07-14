@@ -2,6 +2,7 @@
 #include <WiFiManager.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h> // 🌟 เพิ่มไลบรารีสำหรับ HTTPS ที่ถูกต้อง
 #include <Preferences.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -19,11 +20,8 @@
 float totalVoltage = 0, current = 0, power = 0;
 float temp1 = 0, temp2 = 0, mosTemp = 0;
 int soc = 0, cycleCount = 0;
-float remainCap = 0;
-float cellAve = 0, diffVtg = 0;
-
-// แก้ไขจาก String เป็น Static Char Array เพื่อป้องกัน Memory Leak
-char cellsString[150] = ""; 
+float remainCap = 0, cellAve = 0, diffVtg = 0;
+char cellsBuf[128] = "";
 
 struct BMSRegister {
   uint16_t addr;
@@ -47,10 +45,11 @@ String appScriptUrl = "";
 
 SemaphoreHandle_t bmsMutex;
 bool bmsDataReady = false;
-int bmsCycleCounter = 0;           // ใช้ป้องกันส่งข้อมูลก่อนอ่านครบรอบแรก
+int bmsCycleCounter = 0;
+bool hasValidData = false;
 
 unsigned long lastSend = 0;
-const unsigned long SEND_INTERVAL = 15000;
+const unsigned long SEND_INTERVAL = 30000;   // ← ส่งทุก 30 วินาที
 
 // ==================== ฟังก์ชัน BMS ====================
 uint16_t modbusCRC16(uint8_t* data, uint8_t len) {
@@ -88,29 +87,24 @@ void parseBMSData(int reqIdx, uint8_t* data) {
     case 8: cycleCount = (((uint32_t)data[0]<<24)|(uint32_t)data[1]<<16|(uint32_t)data[2]<<8|data[3]); break;
     case 9: {
       float sumV = 0, maxV = -1, minV = 10;
-      int activeCells = 0;
-      
-      // ป้องกัน Heap Fragmentation โดยใช้ snprintf เขียนลง Array คงที่
-      int offset = 0;
-      cellsString[0] = '\0'; 
-
+      int active = 0;
+      cellsBuf[0] = '\0';
+      char temp[10];
       for (int i = 0; i < CELL_COUNT; i++) {
-        float cellV = ((data[i * 2] << 8) | data[(i * 2) + 1]) / 1000.0;
-        
-        if (i > 0) {
-          offset += snprintf(cellsString + offset, sizeof(cellsString) - offset, ",");
-        }
-        offset += snprintf(cellsString + offset, sizeof(cellsString) - offset, "%.3f", cellV);
+        float cellV = ((data[i*2]<<8) | data[i*2+1]) / 1000.0;
+        if (i > 0) strcat(cellsBuf, ",");
+        dtostrf(cellV, 1, 3, temp);
+        strcat(cellsBuf, temp);
 
         if (cellV > 0) {
           sumV += cellV;
           if (cellV > maxV) maxV = cellV;
           if (cellV < minV) minV = cellV;
-          activeCells++;
+          active++;
         }
       }
-      if (activeCells > 0) {
-        cellAve = sumV / activeCells;
+      if (active > 0) {
+        cellAve = sumV / active;
         diffVtg = maxV - minV;
       }
       break;
@@ -127,17 +121,17 @@ bool waitingForResponse = false;
 
 void Task_ReadBMS(void *pvParameters) {
   esp_task_wdt_add(NULL);
-
   for (;;) {
     if (currentReq >= NUM_REGS) {
       if (xSemaphoreTake(bmsMutex, portMAX_DELAY)) {
         bmsDataReady = true;
-        bmsCycleCounter++;           
+        bmsCycleCounter++;
+        hasValidData = true;
         xSemaphoreGive(bmsMutex);
       }
       currentReq = 0;
       bufIdx = 0;
-      vTaskDelay(30 / portTICK_PERIOD_MS);
+      vTaskDelay(50 / portTICK_PERIOD_MS);
       esp_task_wdt_reset();
       continue;
     }
@@ -157,8 +151,7 @@ void Task_ReadBMS(void *pvParameters) {
         uint8_t expected = buf[2] + 5;
         if (bufIdx >= expected) {
           uint16_t calc = modbusCRC16(buf, expected-2);
-          uint16_t rec  = buf[expected-2] | (buf[expected-1] << 8);
-
+          uint16_t rec = buf[expected-2] | (buf[expected-1] << 8);
           if (calc == rec) {
             if (xSemaphoreTake(bmsMutex, portMAX_DELAY)) {
               parseBMSData(currentReq, &buf[3]);
@@ -183,82 +176,65 @@ void Task_ReadBMS(void *pvParameters) {
         currentReq++;
       }
     }
-
     esp_task_wdt_reset();
-    vTaskDelay(8 / portTICK_PERIOD_MS);
+    vTaskDelay(10 / portTICK_PERIOD_MS);
   }
 }
 
 // ==================== Task ส่งข้อมูล (Core 1) ====================
 void Task_SendData(void *pvParameters) {
   esp_task_wdt_add(NULL);
-
   for (;;) {
-    if (bmsDataReady && bmsCycleCounter >= 1 && (millis() - lastSend > SEND_INTERVAL) && WiFi.status() == WL_CONNECTED) {
-      
-      // 1. สร้างตัวแปร Local มารองรับการ Copy ข้อมูลอย่างรวดเร็ว (ลดระยะเวลาถือ Mutex)
-      float l_totalVoltage, l_current, l_power, l_temp1, l_temp2, l_mosTemp, l_remainCap, l_cellAve, l_diffVtg;
-      int l_soc, l_cycleCount;
-      char l_cellsString[150];
+    if (hasValidData && bmsDataReady && bmsCycleCounter >= 1 && 
+        (millis() - lastSend > SEND_INTERVAL)) {
 
-      if (xSemaphoreTake(bmsMutex, portMAX_DELAY)) {
-        l_totalVoltage = totalVoltage; 
-        l_current = current; 
-        l_power = power;
-        l_soc = soc; 
-        l_temp1 = temp1; 
-        l_temp2 = temp2; 
-        l_mosTemp = mosTemp;
-        l_remainCap = remainCap; 
-        l_cycleCount = cycleCount;
-        l_cellAve = cellAve; 
-        l_diffVtg = diffVtg;
-        strlcpy(l_cellsString, cellsString, sizeof(l_cellsString));
-        
-        bmsDataReady = false; 
-        xSemaphoreGive(bmsMutex); // 2. ปล่อย Mutex ทันทีให้ Core 0 วิ่งต่อ ไม่เกิดปัญหาคอขวด
+      if (WiFi.status() != WL_CONNECTED) {
+        WiFi.reconnect();
+        vTaskDelay(4000 / portTICK_PERIOD_MS);
       }
 
-      // 3. ดำเนินการด้าน JSON ข้างนอก Mutex ป้องกัน Task อื่นค้าง
-      StaticJsonDocument<768> doc;
-      doc["total_v"] = l_totalVoltage;
-      doc["current"] = l_current;
-      doc["power"] = l_power;
-      doc["soc"] = l_soc;
-      doc["temp1"] = l_temp1;
-      doc["temp2"] = l_temp2;
-      doc["mos_temp"] = l_mosTemp;
-      doc["remain_cap"] = l_remainCap;
-      doc["cycle_count"] = l_cycleCount;
-      doc["cell_ave"] = l_cellAve;
-      doc["diff_v"] = l_diffVtg;
-      doc["cells_v"] = l_cellsString;
+      if (WiFi.status() == WL_CONNECTED) {
+        if (xSemaphoreTake(bmsMutex, portMAX_DELAY)) {
+          StaticJsonDocument<768> doc;
+          doc["total_v"] = totalVoltage;
+          doc["current"] = current;
+          doc["power"] = power;
+          doc["soc"] = soc;
+          doc["temp1"] = temp1;
+          doc["temp2"] = temp2;
+          doc["mos_temp"] = mosTemp;
+          doc["remain_cap"] = remainCap;
+          doc["cycle_count"] = cycleCount;
+          doc["cell_ave"] = cellAve;
+          doc["diff_v"] = diffVtg;
+          doc["cells_v"] = cellsBuf;
 
-      String json;
-      serializeJson(doc, json);
+          char json[1024];
+          serializeJson(doc, json, sizeof(json));
+          xSemaphoreGive(bmsMutex);
 
-      // 4. ตั้งค่า HTTP Client ให้ปลอดภัยต่อ Network Leak และดักการ Redirect
-      HTTPClient http;
-      http.setReuse(false); 
-      http.setTimeout(15000); 
-      http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS); // สำคัญมากสำหรับ Google Apps Script!
+          // 🌟 สร้างไคลเอนต์ Secure และสั่งไม่ตรวจ Certificate เพื่อให้เข้า HTTPS ได้
+          WiFiClientSecure client;
+          client.setInsecure(); 
 
-      if (http.begin(appScriptUrl)) {
-        http.addHeader("Content-Type", "application/json");
-        int code = http.POST(json);
-        Serial.printf("[Send] HTTP Code: %d | Cycle: %d\n", code, bmsCycleCounter);
-        
-        if (code > 0) {
-           String response = http.getString(); // เคลียร์บัฟเฟอร์การตอบรับ
+          HTTPClient http;
+          http.begin(client, appScriptUrl); // แนบตัวแปร client ข้ามตรวจความปลอดภัยไปด้วย
+          http.addHeader("Content-Type", "application/json");
+          
+          // สั่งให้เดินตาม Redirect โค้ด 302 ของ Google Script
+          http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS); 
+          
+          int code = http.POST(json);
+          
+          // บรรทัดรายงานผลบรรทัดเดียว ไม่ทำให้ระบบค้างแน่นอนครับ
+          Serial.printf("[Send %d] Code:%d | Power:%.2f\n", bmsCycleCounter, code, power);
+          http.end();
+
+          lastSend = millis();
+          bmsDataReady = false;
         }
-        http.end(); // ปิด Connection ป้องกันพอร์ตเต็ม
-      } else {
-        Serial.println("[Send] HTTP Begin Failed!");
       }
-
-      lastSend = millis();
     }
-
     esp_task_wdt_reset();
     vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
@@ -271,21 +247,16 @@ void saveConfigCallback() {
 }
 
 void checkFactoryReset() {
-  static unsigned long buttonPressTime = 0;
-  static bool buttonWasPressed = false;
-
+  static unsigned long t = 0;
+  static bool pressed = false;
   if (digitalRead(BUTTON_PIN) == LOW) {
-    if (!buttonWasPressed) {
-      buttonPressTime = millis();
-      buttonWasPressed = true;
-    } else if (millis() - buttonPressTime > 3000) {
+    if (!pressed) { t = millis(); pressed = true; }
+    else if (millis() - t > 3000) {
       wm.resetSettings();
       preferences.clear();
       ESP.restart();
     }
-  } else {
-    buttonWasPressed = false;
-  }
+  } else pressed = false;
 }
 
 // ==================== SETUP ====================
@@ -294,6 +265,14 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
 
+  // 1. ตั้งค่า Watchdog ครั้งแรกเผื่อเวลาเชื่อมต่อ WiFi (45 วินาที)
+  esp_task_wdt_config_t wdt_config = {
+    .timeout_ms = 45000,   
+    .idle_core_mask = (1 << 0) | (1 << 1),
+    .trigger_panic = true
+  };
+  esp_task_wdt_init(&wdt_config);
+
   preferences.begin("bms_config", false);
   appScriptUrl = preferences.getString("url", "");
 
@@ -301,46 +280,35 @@ void setup() {
   wm.addParameter(&custom_gscript);
   wm.setSaveParamsCallback(saveConfigCallback);
 
+  Serial.println("Starting JK BMS...");
+
   if (wm.autoConnect("JK_BMS_Setup")) {
+    Serial.println("WiFi Connected");
     if (appScriptUrl == "") appScriptUrl = custom_gscript.getValue();
     Serial2.begin(115200, SERIAL_8N1, BMS_RX_PIN, BMS_TX_PIN);
-    Serial.println("WiFi Connected - BMS Started");
   }
 
   bmsMutex = xSemaphoreCreateMutex();
   delay(1500);
 
-  // ขยาย Stack ของ SendData เป็น 8192 เพื่อให้สามารถทำงานกับ HTTPS (SSL) ได้อย่างปลอดภัย
+  // 2. สร้าง Task (SendData ใช้ 8192 เพื่อความปลอดภัยในการแปลง JSON และรัน HTTPS)
   xTaskCreatePinnedToCore(Task_ReadBMS, "ReadBMS", 4096, NULL, 2, NULL, 0);
   xTaskCreatePinnedToCore(Task_SendData, "SendData", 8192, NULL, 1, NULL, 1);
 
-  esp_task_wdt_config_t wdt_config = {
-      .timeout_ms = 30000,
-      .idle_core_mask = (1 << 0) | (1 << 1),
-      .trigger_panic = true
-  };
-  esp_task_wdt_init(&wdt_config);
+  // 3. เปลี่ยน timeout กลับมาเป็น 30 วินาที หลัง Setup เสร็จ
+  wdt_config.timeout_ms = 30000;
+  esp_task_wdt_reconfigure(&wdt_config);
+
+  Serial.println("System Ready - Logs are muted for stability.");
+
+  // 4. ลงทะเบียนฟังก์ชัน loop() เข้า Watchdog เพื่อไม่ให้แจ้ง Error
+  esp_task_wdt_add(NULL); 
 }
 
 // ==================== LOOP ====================
 void loop() {
   checkFactoryReset();
   wm.process();
-
-  // --- เช็คสถานะการเชื่อมต่อ WiFi และ Auto-Reboot เมื่อหลุดเกิน 5 นาที ---
-  static unsigned long lastConnectedTime = millis();
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    lastConnectedTime = millis(); 
-  } else {
-    if (millis() - lastConnectedTime > 300000) {
-      Serial.println("[System] WiFi disconnected for 5 mins. Rebooting...");
-      delay(1000);
-      ESP.restart(); 
-    }
-  }
-  // ---------------------------------------------------------------
-
   esp_task_wdt_reset();
   vTaskDelay(10 / portTICK_PERIOD_MS);
 }
