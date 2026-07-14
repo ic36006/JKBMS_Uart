@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= include('Styles'); ?>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+  </head>
+  <body>
+    <div class="header">
+      <div class="title"><span style="color:#00ff66;">🔋</span> BATTERY</div>
+      <div class="update-time">Last update: <span id="last-update">--:--:--</span></div>
+    </div>
+
+    <div class="card card-green main-gauge-card">
+      <div class="gauge-container">
+        <svg viewBox="0 0 200 200" class="gauge">
+          <defs>
+            <linearGradient id="grad" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#4dff00" />
+              <stop offset="100%" stop-color="#00ffff" />
+            </linearGradient>
+          </defs>
+          <circle cx="100" cy="100" r="68" class="gauge-ticks" transform="rotate(135 100 100)" />
+          <circle cx="100" cy="100" r="85" class="gauge-bg" transform="rotate(135 100 100)" />
+          <circle cx="100" cy="100" r="85" class="gauge-progress" id="soc-gauge" transform="rotate(135 100 100)" />
+        </svg>
+
+        <div class="gauge-center">
+          <div class="soc-text"><span id="soc-val">0</span><span class="unit">%</span></div>
+          <div class="pill-box green-border">🔋 <span id="v-val">0.00</span> V</div>
+          <div class="pill-box green-border">⚡ <span id="a-val">0.00</span> A</div>
+        </div>
+      </div>
+      <div class="power-text">Power <span id="w-val">0.0</span> W</div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card card-blue">
+        <div class="stat-row"><span>Low Cell</span> <span id="min-cell" class="blue-txt">0.000 V</span></div>
+        <div class="stat-row"><span>High Cell</span> <span id="max-cell" class="red-txt">0.000 V</span></div>
+        <div class="stat-row"><span>Diff</span> <span id="diff-cell" class="white-txt">0.000 V</span></div>
+      </div>
+      <div class="card card-green-dark">
+        <div class="stat-row"><span>Capacity</span> <span class="white-txt">280 Ah</span></div>
+        <div class="stat-row"><span>Remaining</span> <span id="rem-ah" class="white-txt">0 Ah</span></div>
+        <div class="cap-bar-bg"><div class="cap-bar-fill" id="cap-bar"></div></div>
+      </div>
+    </div>
+
+    <div class="card card-orange temp-card">
+      <div class="stat-row"><span>MOS Temp</span> <span id="t-mos">0 °C</span></div>
+      <div class="stat-row"><span>BAT1 Temp</span> <span id="t-bat1">0 °C</span></div>
+      <div class="stat-row"><span>BAT2 Temp</span> <span id="t-bat2">0 °C</span></div>
+    </div>
+
+    <div class="card">
+      <h3>📊 CELL VOLTAGES</h3>
+      <div class="cell-bar-container">
+        <div class="cell-row"><span>C1</span> <div class="progress-bg"><div id="c1-bar" class="progress-fill"></div></div> <span id="c1-txt" class="green-txt">0.000 V</span></div>
+        <div class="cell-row"><span>C2</span> <div class="progress-bg"><div id="c2-bar" class="progress-fill"></div></div> <span id="c2-txt" class="green-txt">0.000 V</span></div>
+        <div class="cell-row"><span>C3</span> <div class="progress-bg"><div id="c3-bar" class="progress-fill"></div></div> <span id="c3-txt" class="green-txt">0.000 V</span></div>
+        <div class="cell-row"><span>C4</span> <div class="progress-bg"><div id="c4-bar" class="progress-fill"></div></div> <span id="c4-txt" class="green-txt">0.000 V</span></div>
+        <div class="cell-row"><span>C5</span> <div class="progress-bg"><div id="c5-bar" class="progress-fill"></div></div> <span id="c5-txt" class="green-txt">0.000 V</span></div>
+        <div class="cell-row"><span>C6</span> <div class="progress-bg"><div id="c6-bar" class="progress-fill"></div></div> <span id="c6-txt" class="green-txt">0.000 V</span></div>
+        <div class="cell-row"><span>C7</span> <div class="progress-bg"><div id="c7-bar" class="progress-fill"></div></div> <span id="c7-txt" class="green-txt">0.000 V</span></div>
+        <div class="cell-row"><span>C8</span> <div class="progress-bg"><div id="c8-bar" class="progress-fill"></div></div> <span id="c8-txt" class="green-txt">0.000 V</span></div>
+      </div>
+      <div class="scale-labels"><span>2.50</span><span>3.10</span><span>3.65</span></div>
+    </div>
+
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h3 style="margin: 0;">📈 HISTORY GRAPH</h3>
+        <div class="chart-buttons">
+          <button class="btn-time active" onclick="changeTimeRange('1hr', this)">1hr</button>
+          <button class="btn-time" onclick="changeTimeRange('1Day', this)">1Day</button>
+          <button class="btn-time" onclick="changeTimeRange('7D', this)">7D</button>
+        </div>
+      </div>
+      <div id="chart"></div>
+    </div>
+
+    <?!= include('JavaScript'); ?>
+  </body>
+</html>
