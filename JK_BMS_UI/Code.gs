@@ -1,46 +1,49 @@
-function doGet(e) {
-  if (e && e.parameter && e.parameter.soc) {
-    try {
-      var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-      var timestamp = new Date();
-      
-      var soc = e.parameter.soc || "0";
-      var voltage = e.parameter.totalVoltage || "0";
-      var current = e.parameter.current || "0";
-      var power = e.parameter.power || "0";
-      var remainAh = e.parameter.capacityRemain || "0";
-      var fullAh = e.parameter.capacityFull || "0";
-      var tempMos = e.parameter.mosTemp || "0";
-      var temp1 = e.parameter.temp1 || "0";
-      var temp2 = e.parameter.temp2 || "0";
-      var maxV = e.parameter.maxV || "0";
-      var minV = e.parameter.minV || "0";
-      var deltaV = e.parameter.deltaV || "0";
-      var balCurrent = e.parameter.balanceCurrent || "0";
-      var cellV = e.parameter.cellV || "";
-      var wireR = e.parameter.wireR || "";
-
-      sheet.appendRow([
-        timestamp, soc, voltage, current, power, remainAh, fullAh, 
-        tempMos, temp1, temp2, maxV, minV, deltaV, balCurrent, cellV, wireR
-      ]);
-
-      return ContentService.createTextOutput("Success");
-    } catch (error) {
-      return ContentService.createTextOutput("Error: " + error.toString());
-    }
-  } else {
-    return HtmlService.createTemplateFromFile('Index')
-        .evaluate()
-        .setTitle('BMS Smart Battery Dashboard')
-        .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+// ฟังก์ชันสำหรับรับข้อมูลจาก ESP32 (ยิงมาเป็นแบบ POST JSON)
+function doPost(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  
+  try {
+    var data = JSON.parse(e.postData.contents);
+    
+    // เรียงตาม: Timestamp, Total Voltage, Current, Power, SOC, Temp T1, Temp T2, MOS Temp, Remain Cap, Cycle Count, Cell Ave, Diff-Vtg, Cell
+    var rowData = [
+      new Date(),            // A: Timestamp
+      data.total_v,          // B: Total Voltage
+      data.current,          // C: Current
+      data.power,            // D: Power
+      data.soc,              // E: SOC
+      data.temp1,            // F: Temp T1
+      data.temp2,            // G: Temp T2
+      data.mos_temp,         // H: MOS Temp
+      data.remain_cap,       // I: Remain Capacity
+      data.cycle_count,      // J: Cycle Count
+      data.cell_ave,         // K: Cell Average
+      data.diff_v,           // L: Diff Voltage
+      data.cells_v           // M: Cells (ก้อนเดียวคั่นด้วยลูกน้ำ)
+    ];
+    
+    sheet.appendRow(rowData);
+    return ContentService.createTextOutput("Success").setMimeType(ContentService.MimeType.TEXT);
+    
+  } catch (error) {
+    return ContentService.createTextOutput("Error: " + error.toString()).setMimeType(ContentService.MimeType.TEXT);
   }
 }
 
+// ฟังก์ชันสำหรับเปิดหน้าเว็บ UI Dashboard
+function doGet(e) {
+  return HtmlService.createTemplateFromFile('Index')
+      .evaluate()
+      .setTitle('BMS Smart Battery Dashboard')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+}
+
+// ฟังก์ชันดึงไฟล์ HTML แทรกเข้าไปใน UI
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
+// ฟังก์ชันที่ UI JavaScript เรียกใช้เพื่อดึงข้อมูลมาแสดงผล
 function getBatteryData(timeRange) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var rows = sheet.getDataRange().getValues();
@@ -50,22 +53,37 @@ function getBatteryData(timeRange) {
   var latestRow = rows[rows.length - 1];
   var latestTimestamp = new Date(latestRow[0]).getTime();
   
+  // ข้อมูลเซลล์แบตเตอรี่แบบ Comma Separated อยู่ในคอลัมน์ที่ 13 (Index 12)
+  var cellVoltagesStr = latestRow[12] || "";
+  var minV = 0;
+  var maxV = 0;
+  
+  // คำนวณหาค่า Low Cell (minV) และ High Cell (maxV) เพื่อส่งให้ UI
+  if (cellVoltagesStr) {
+    var cells = cellVoltagesStr.toString().split(',').map(Number).filter(function(n) { return !isNaN(n) && n > 0; });
+    if (cells.length > 0) {
+      minV = Math.min.apply(null, cells);
+      maxV = Math.max.apply(null, cells);
+    }
+  }
+  
+  // ดึงค่าตาม Index ให้ตรงกับข้อมูลที่บันทึกลงไป
   var latestData = {
     timestamp: latestTimestamp, 
-    soc: Number(latestRow[1]) || 0,
-    voltage: Number(latestRow[2]) || 0,
-    current: Number(latestRow[3]) || 0,
-    power: Number(latestRow[4]) || 0,
-    remainAh: Number(latestRow[5]) || 0,
-    fullAh: Number(latestRow[6]) || 0,
-    tempMos: Number(latestRow[7]) || 0,
-    temp1: Number(latestRow[8]) || 0,
-    temp2: Number(latestRow[9]) || 0,
-    maxV: Number(latestRow[10]) || 0,
-    minV: Number(latestRow[11]) || 0,
-    diffV: Number(latestRow[12]) || 0,
-    balCurrent: Number(latestRow[13]) || 0,
-    cellVoltages: latestRow[14] || "" 
+    voltage: Number(latestRow[1]) || 0,    // B: Total Voltage
+    current: Number(latestRow[2]) || 0,    // C: Current
+    power: Number(latestRow[3]) || 0,      // D: Power
+    soc: Number(latestRow[4]) || 0,        // E: SOC
+    temp1: Number(latestRow[5]) || 0,      // F: Temp T1
+    temp2: Number(latestRow[6]) || 0,      // G: Temp T2
+    tempMos: Number(latestRow[7]) || 0,    // H: MOS Temp
+    remainAh: Number(latestRow[8]) || 0,   // I: Remain Capacity
+    cycleCount: Number(latestRow[9]) || 0, // J: Cycle Count
+    cellAve: Number(latestRow[10]) || 0,   // K: Cell Average
+    diffV: Number(latestRow[11]) || 0,     // L: Diff Voltage
+    cellVoltages: cellVoltagesStr,         // M: Cells
+    minV: minV,                            // คำนวณมาได้
+    maxV: maxV                             // คำนวณมาได้
   };
   
   var timeThreshold = 0;
@@ -100,7 +118,7 @@ function getBatteryData(timeRange) {
      if (t - lastAddedTime >= intervalMs || j === matchedRows.length - 1) {
        historyData.push({
          timestamp: t,
-         voltage: Number(matchedRows[j][2]) || 0
+         voltage: Number(matchedRows[j][1]) || 0 // ดึงคอลัมน์ B (Total Voltage) ไปแสดงกราฟ
        });
        lastAddedTime = t;
      }
@@ -112,6 +130,7 @@ function getBatteryData(timeRange) {
   };
 }
 
+// ฟังก์ชันเคลียร์ข้อมูลเก่า
 function autoDeleteOldData() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var maxRows = 172800; 
@@ -119,4 +138,37 @@ function autoDeleteOldData() {
   if (numRows > maxRows) {
     sheet.deleteRows(2, numRows - maxRows); 
   }
+}
+
+// ฟังก์ชันนี้สร้างขึ้นมาใหม่สำหรับให้ ESP32 ดึงข้อมูลโดยเฉพาะ ไม่กระทบกับระบบหน้าแดชบอร์ดเดิม
+function doGet(e) {
+  // ตรวจสอบว่าถ้า ESP32 เรียกมาโดยส่งพารามิเตอร์ ?type=api
+  if (e.parameter.type === 'api') {
+    
+    // ตรงนี้ให้คุณเขียนสคริปต์ดึงค่า "ล่าสุด" จากตารางหรือตัวแปรของคุณ (อ้างอิงตามที่คุณใช้ในหน้าหลัก)
+    // ตัวอย่างการส่งค่ากลับ (ให้เปลี่ยนตัวเลขสมมุติตามตัวแปรจริงของคุณนะครับ):
+    var dataForESP = {
+      "latest": {
+        "soc": 85,          // ค่าเปอร์เซ็นต์ SoC จริง
+        "voltage": 13.12,   // แรงดันไฟรวม
+        "current": -2.50,   // กระแสแอมป์
+        "power": -32.8,     // กำลังวัตต์
+        "minV": 3.250,
+        "maxV": 3.290,
+        "diffV": 0.040,
+        "tempMos": 38.5,
+        "temp1": 31.2,
+        "temp2": 31.5,
+        "cellVoltages": "3.250,3.260,3.270,3.280,3.290,3.280,3.270,3.260" // แรงดัน 8 เซลล์ คั่นด้วยเครื่องหมายจุลภาค
+      }
+    };
+    
+    return ContentService.createTextOutput(JSON.stringify(dataForESP))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  // ⛔️ ถ้าเรียกมาปกติ (ไม่มีพารามิเตอร์) ให้ส่งหน้าเว็บเดิมกลับไป ไม่มีการแก้ไขใดๆ ทั้งสิ้น
+  return HtmlService.createTemplateFromFile('Index').evaluate()
+                    .setTitle('BMS Smart Battery Dashboard')
+                    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
