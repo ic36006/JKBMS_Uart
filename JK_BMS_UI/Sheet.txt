@@ -1,0 +1,1 @@
+Timestamp	Total Voltage (V)	Current (A)	Power (W)	SOC (%)	Temp T1 (C)	Temp T2 (C)	MOS Temp (C)	Remain Cap (Ah)	Cycle Count	Cell Ave (V)	Diff-Vtg (V)	Cell
