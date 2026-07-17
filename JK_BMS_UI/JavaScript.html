@@ -1,103 +1,164 @@
 <script>
   let historyChart;
-  let activeTimeRange = '1hr'; 
+  let activeTimeRange = '1hr';
+  let activeMetric = 'voltage';
+  let currentSettings = { batteryName: 'BATTERY', cellCount: 16, capacityAh: 280, retentionDays: 30 };
 
+  const METRIC_LABELS = {
+    voltage: 'Voltage (V)', current: 'Current (A)', power: 'Power (W)', soc: 'SOC (%)',
+    mosTemp: 'MOS Temp (°C)', temp1: 'BAT1 Temp (°C)', temp2: 'BAT2 Temp (°C)', remainAh: 'Remaining (Ah)'
+  };
+
+  // ---------- Settings Modal ----------
+  function openSettings() {
+    document.getElementById('set-name').value = currentSettings.batteryName;
+    document.getElementById('set-cellcount').value = currentSettings.cellCount;
+    document.getElementById('set-capacity').value = currentSettings.capacityAh;
+    document.getElementById('set-retention').value = currentSettings.retentionDays;
+    document.getElementById('settings-modal').classList.add('open');
+  }
+
+  function closeSettings() {
+    document.getElementById('settings-modal').classList.remove('open');
+  }
+
+  function saveSettingsForm() {
+    let newSettings = {
+      batteryName: document.getElementById('set-name').value || 'BATTERY',
+      cellCount: parseInt(document.getElementById('set-cellcount').value),
+      capacityAh: parseFloat(document.getElementById('set-capacity').value) || 280,
+      retentionDays: parseInt(document.getElementById('set-retention').value)
+    };
+    google.script.run.withSuccessHandler(function(saved) {
+      currentSettings = saved;
+      applySettingsToUI();
+      closeSettings();
+      fetchDashboardData();
+    }).saveSettings(newSettings);
+  }
+
+  function applySettingsToUI() {
+    document.getElementById('battery-name').innerText = currentSettings.batteryName;
+    document.getElementById('cap-total').innerText = currentSettings.capacityAh + ' Ah';
+    buildCellRows(currentSettings.cellCount);
+  }
+
+  function buildCellRows(count) {
+    let container = document.getElementById('cell-container');
+    container.innerHTML = '';
+    for (let i = 1; i <= count; i++) {
+      let row = document.createElement('div');
+      row.className = 'cell-row';
+      row.innerHTML = `<span>C${i}</span>
+        <div class="progress-bg"><div id="c${i}-bar" class="progress-fill"></div></div>
+        <span id="c${i}-txt" class="green-txt">0.000 V</span>`;
+      container.appendChild(row);
+    }
+  }
+
+  // ---------- Chart controls ----------
   function changeTimeRange(range, btnElement) {
     activeTimeRange = range;
     document.querySelectorAll('.btn-time').forEach(btn => btn.classList.remove('active'));
     btnElement.classList.add('active');
-    fetchDashboardData(); 
+    fetchDashboardData();
   }
 
+  function changeMetric(metric) {
+    activeMetric = metric;
+    fetchDashboardData();
+  }
+
+  // ---------- Gauge ----------
   function updateGauge(percent) {
     const circle = document.getElementById('soc-gauge');
     if (!circle) return;
-    const maxDash = 400; 
+    const maxDash = 400;
     const offset = maxDash - (percent / 100) * maxDash;
     circle.style.strokeDashoffset = offset;
-    
-    if(document.getElementById('soc-val')) document.getElementById('soc-val').innerText = percent;
-    if(document.getElementById('cap-bar')) document.getElementById('cap-bar').style.width = percent + '%';
+    document.getElementById('soc-val').innerText = percent;
   }
 
+  // ---------- Main fetch ----------
   function fetchDashboardData() {
     google.script.run.withSuccessHandler(function(data) {
-      if(!data || !data.latest) return;
+      if (!data || !data.latest) return;
       let latest = data.latest;
 
-      if (latest.timestamp && document.getElementById('last-update')) {
+      if (latest.timestamp) {
         let d = new Date(latest.timestamp);
         document.getElementById('last-update').innerText = isNaN(d.getTime()) ? "Just now" : d.toLocaleTimeString('th-TH', { hour12: false });
       }
 
-      if(latest.soc !== undefined) updateGauge(Math.round(latest.soc));
-      if(latest.voltage !== undefined) document.getElementById('v-val').innerText = Number(latest.voltage).toFixed(2);
-      
-      if(latest.current !== undefined) {
+      if (latest.soc !== undefined) updateGauge(Math.round(latest.soc));
+      if (latest.voltage !== undefined) document.getElementById('v-val').innerText = Number(latest.voltage).toFixed(2);
+
+      if (latest.current !== undefined) {
         let amp = Number(latest.current);
         document.getElementById('a-val').innerText = amp > 0 ? "+" + amp.toFixed(2) : amp.toFixed(2);
       }
-      
-      if(latest.power !== undefined) document.getElementById('w-val').innerText = Number(latest.power).toFixed(1);
-      
-      if(latest.diffV !== undefined) {
-         document.getElementById('diff-cell').innerText = Number(latest.diffV).toFixed(3) + " V";
+
+      if (latest.power !== undefined) document.getElementById('w-val').innerText = Number(latest.power).toFixed(1);
+      if (latest.diffV !== undefined) document.getElementById('diff-cell').innerText = Number(latest.diffV).toFixed(3) + " V";
+      if (latest.minV !== undefined) document.getElementById('min-cell').innerText = Number(latest.minV).toFixed(3) + " V";
+      if (latest.maxV !== undefined) document.getElementById('max-cell').innerText = Number(latest.maxV).toFixed(3) + " V";
+      if (latest.remainAh !== undefined) document.getElementById('rem-ah').innerText = Math.round(Number(latest.remainAh)) + " Ah";
+      if (latest.tempMos !== undefined) document.getElementById('t-mos').innerText = Number(latest.tempMos).toFixed(1) + " °C";
+      if (latest.temp1 !== undefined) document.getElementById('t-bat1').innerText = Number(latest.temp1).toFixed(1) + " °C";
+      if (latest.temp2 !== undefined) document.getElementById('t-bat2').innerText = Number(latest.temp2).toFixed(1) + " °C";
+      if (latest.capacityAh !== undefined) document.getElementById('cap-total').innerText = latest.capacityAh + " Ah";
+      if (latest.remainAh !== undefined && latest.capacityAh) {
+        let capPct = (Number(latest.remainAh) / Number(latest.capacityAh)) * 100;
+        document.getElementById('cap-bar').style.width = Math.min(100, Math.max(0, capPct)) + '%';
       }
-      
-      if(latest.minV !== undefined) document.getElementById('min-cell').innerText = Number(latest.minV).toFixed(3) + " V";
-      if(latest.maxV !== undefined) document.getElementById('max-cell').innerText = Number(latest.maxV).toFixed(3) + " V";
-      if(latest.remainAh !== undefined) document.getElementById('rem-ah').innerText = Math.round(Number(latest.remainAh)) + " Ah";
-      
-      if(latest.tempMos !== undefined) document.getElementById('t-mos').innerText = Number(latest.tempMos).toFixed(1) + " °C";
-      if(latest.temp1 !== undefined) document.getElementById('t-bat1').innerText = Number(latest.temp1).toFixed(1) + " °C";
-      if(latest.temp2 !== undefined) document.getElementById('t-bat2').innerText = Number(latest.temp2).toFixed(1) + " °C";
-      
-      if(latest.cellVoltages) {
+      if (latest.batteryName) document.getElementById('battery-name').innerText = latest.batteryName;
+
+      if (latest.cellVoltages) {
         let cells = latest.cellVoltages.toString().split(',').map(Number);
         cells.forEach((val, index) => {
           let cellNum = index + 1;
           let elementTxt = document.getElementById(`c${cellNum}-txt`);
           let elementBar = document.getElementById(`c${cellNum}-bar`);
-          if(elementTxt && elementBar && !isNaN(val)) {
-             elementTxt.innerText = val.toFixed(3) + " V";
-             // ปรับสูตรคำนวณแท่งบาร์ตามสเกล 2.50 - 3.65
-             let cellPct = ((val - 2.50) / (3.65 - 2.50)) * 100;
-             elementBar.style.width = Math.min(100, Math.max(0, cellPct)) + '%';
+          if (elementTxt && elementBar && !isNaN(val)) {
+            elementTxt.innerText = val.toFixed(3) + " V";
+            let cellPct = ((val - 2.50) / (3.65 - 2.50)) * 100;
+            elementBar.style.width = Math.min(100, Math.max(0, cellPct)) + '%';
           }
         });
       }
-      
-      if(data.history) {
-        updateHistoryChart(data.history);
+
+      if (data.history) {
+        updateHistoryChart(data.history, data.metric || activeMetric);
       }
-    }).getBatteryData(activeTimeRange); 
+    }).getBatteryData(activeTimeRange, activeMetric);
   }
 
-  function updateHistoryChart(history) {
-    let validHistory = history.filter(d => (Number(d.voltage) || 0) > 0);
-    if(validHistory.length === 0) return;
+  function updateHistoryChart(history, metric) {
+    let validHistory = history; // ค่าติดลบได้ (เช่น current) จึงไม่กรอง > 0 อีกต่อไป
+    if (validHistory.length === 0) return;
 
-    let chartData = validHistory.map(d => [d.timestamp, Number(d.voltage) || 0]);
+    let chartData = validHistory.map(d => [d.timestamp, Number(d.value) || 0]);
+    let label = METRIC_LABELS[metric] || metric;
 
     let options = {
-      series: [{ name: 'Vol', data: chartData }],
-      chart: { type: 'line', height: 200, theme: 'dark', background: 'transparent', toolbar: {show:false}, animations: {enabled: false} },
+      series: [{ name: label, data: chartData }],
+      chart: { type: 'line', height: 200, theme: 'dark', background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
       colors: ['#00ff66'],
       stroke: { curve: 'smooth', width: 2 },
-      dataLabels: { enabled: false }, // ซ่อนตัวเลขบนจุดกราฟ
-      xaxis: { 
+      dataLabels: { enabled: false },
+      xaxis: {
         type: 'datetime',
-        labels: { show: false }, // ซ่อนตัวเลข/เวลา บนแกน X
+        labels: { show: false },
         axisBorder: { show: true, color: '#1f293d' },
         axisTicks: { show: false },
-        tooltip: { enabled: false } // ปิด Tooltip ของแกน X เพราะเราใช้ Tooltip หลักแทน
+        tooltip: { enabled: false }
       },
       tooltip: {
         theme: 'dark',
-        x: { format: 'dd MMM yyyy HH:mm' } // โชว์วันที่และเวลาเมื่อชี้เมาส์
+        x: { format: 'dd MMM yyyy HH:mm' }
       },
-      yaxis: { 
-        labels: { style: { colors: '#00ff66' }, formatter: (val) => val.toFixed(2) } 
+      yaxis: {
+        labels: { style: { colors: '#00ff66' }, formatter: (val) => val.toFixed(2) }
       },
       grid: { borderColor: '#1f293d', strokeDashArray: 4 }
     };
@@ -106,13 +167,18 @@
       historyChart = new ApexCharts(document.querySelector("#chart"), options);
       historyChart.render();
     } else {
-      historyChart.updateSeries([{ data: chartData }]);
-      historyChart.updateOptions(options); 
+      historyChart.updateSeries([{ name: label, data: chartData }]);
+      historyChart.updateOptions(options);
     }
   }
 
-  window.onload = function() {
-    fetchDashboardData();
-    setInterval(fetchDashboardData, 5000); 
+  // ---------- Init ----------
+  window.onload = function () {
+    google.script.run.withSuccessHandler(function (settings) {
+      currentSettings = settings;
+      applySettingsToUI();
+      fetchDashboardData();
+      setInterval(fetchDashboardData, 5000);
+    }).getSettings();
   };
 </script>
