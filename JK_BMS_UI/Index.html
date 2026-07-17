@@ -7,8 +7,11 @@
   </head>
   <body>
     <div class="header">
-      <div class="title"><span style="color:#00ff66;">🔋</span> BATTERY</div>
-      <div class="update-time">Last update: <span id="last-update">--:--:--</span></div>
+      <div class="title">
+        <span style="color:#00ff66;">🔋</span> <span id="battery-name">BATTERY</span>
+        <button class="settings-btn" onclick="openSettings()">⚙️</button>
+      </div>
+      <div class="update-time">Last update:<br><span id="last-update">--:--:--</span></div>
     </div>
 
     <div class="card card-green main-gauge-card">
@@ -24,7 +27,6 @@
           <circle cx="100" cy="100" r="85" class="gauge-bg" transform="rotate(135 100 100)" />
           <circle cx="100" cy="100" r="85" class="gauge-progress" id="soc-gauge" transform="rotate(135 100 100)" />
         </svg>
-
         <div class="gauge-center">
           <div class="soc-text"><span id="soc-val">0</span><span class="unit">%</span></div>
           <div class="pill-box green-border">🔋 <span id="v-val">0.00</span> V</div>
@@ -41,7 +43,7 @@
         <div class="stat-row"><span>Diff</span> <span id="diff-cell" class="white-txt">0.000 V</span></div>
       </div>
       <div class="card card-green-dark">
-        <div class="stat-row"><span>Capacity</span> <span class="white-txt">280 Ah</span></div>
+        <div class="stat-row"><span>Capacity</span> <span id="cap-total" class="white-txt">280 Ah</span></div>
         <div class="stat-row"><span>Remaining</span> <span id="rem-ah" class="white-txt">0 Ah</span></div>
         <div class="cap-bar-bg"><div class="cap-bar-fill" id="cap-bar"></div></div>
       </div>
@@ -55,22 +57,27 @@
 
     <div class="card">
       <h3>📊 CELL VOLTAGES</h3>
-      <div class="cell-bar-container">
-        <div class="cell-row"><span>C1</span> <div class="progress-bg"><div id="c1-bar" class="progress-fill"></div></div> <span id="c1-txt" class="green-txt">0.000 V</span></div>
-        <div class="cell-row"><span>C2</span> <div class="progress-bg"><div id="c2-bar" class="progress-fill"></div></div> <span id="c2-txt" class="green-txt">0.000 V</span></div>
-        <div class="cell-row"><span>C3</span> <div class="progress-bg"><div id="c3-bar" class="progress-fill"></div></div> <span id="c3-txt" class="green-txt">0.000 V</span></div>
-        <div class="cell-row"><span>C4</span> <div class="progress-bg"><div id="c4-bar" class="progress-fill"></div></div> <span id="c4-txt" class="green-txt">0.000 V</span></div>
-        <div class="cell-row"><span>C5</span> <div class="progress-bg"><div id="c5-bar" class="progress-fill"></div></div> <span id="c5-txt" class="green-txt">0.000 V</span></div>
-        <div class="cell-row"><span>C6</span> <div class="progress-bg"><div id="c6-bar" class="progress-fill"></div></div> <span id="c6-txt" class="green-txt">0.000 V</span></div>
-        <div class="cell-row"><span>C7</span> <div class="progress-bg"><div id="c7-bar" class="progress-fill"></div></div> <span id="c7-txt" class="green-txt">0.000 V</span></div>
-        <div class="cell-row"><span>C8</span> <div class="progress-bg"><div id="c8-bar" class="progress-fill"></div></div> <span id="c8-txt" class="green-txt">0.000 V</span></div>
+      <div class="cell-bar-container" id="cell-container">
+        <!-- แถว cell จะถูกสร้างด้วย JS ตามจำนวนที่ตั้งไว้ -->
       </div>
       <div class="scale-labels"><span>2.50</span><span>3.10</span><span>3.65</span></div>
     </div>
-    
+
     <div class="card">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
         <h3 style="margin: 0;">📈 HISTORY GRAPH</h3>
+      </div>
+      <div class="chart-controls">
+        <select id="metric-select" class="metric-select" onchange="changeMetric(this.value)">
+          <option value="voltage">แรงดัน (Voltage)</option>
+          <option value="current">กระแส (Current)</option>
+          <option value="power">กำลังไฟ (Power)</option>
+          <option value="soc">SOC (%)</option>
+          <option value="mosTemp">MOS Temp</option>
+          <option value="temp1">BAT1 Temp</option>
+          <option value="temp2">BAT2 Temp</option>
+          <option value="remainAh">Remaining (Ah)</option>
+        </select>
         <div class="chart-buttons">
           <button class="btn-time active" onclick="changeTimeRange('1hr', this)">1hr</button>
           <button class="btn-time" onclick="changeTimeRange('1Day', this)">1Day</button>
@@ -78,6 +85,41 @@
         </div>
       </div>
       <div id="chart"></div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settings-modal">
+      <div class="modal-box">
+        <h3>⚙️ Settings</h3>
+        <div class="form-group">
+          <label>ชื่อแบตเตอรี่</label>
+          <input type="text" id="set-name" maxlength="20">
+        </div>
+        <div class="form-group">
+          <label>จำนวนเซลล์</label>
+          <select id="set-cellcount">
+            <option value="4">4S</option>
+            <option value="8">8S</option>
+            <option value="16">16S</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>ความจุแบตเตอรี่ (Ah)</label>
+          <input type="number" id="set-capacity" min="1" step="1">
+        </div>
+        <div class="form-group">
+          <label>เก็บข้อมูลย้อนหลัง (วัน)</label>
+          <select id="set-retention">
+            <option value="10">10 วัน</option>
+            <option value="15">15 วัน</option>
+            <option value="30">30 วัน</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-cancel" onclick="closeSettings()">ยกเลิก</button>
+          <button class="btn-save" onclick="saveSettingsForm()">บันทึก</button>
+        </div>
+      </div>
     </div>
 
     <?!= include('JavaScript'); ?>
