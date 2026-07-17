@@ -1,25 +1,26 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Arial', sans-serif; }
   body { background-color: #0b101a; color: #a0aec0; padding: 10px; max-width: 480px; margin: 0 auto; }
-  
+
   .header { display: flex; justify-content: space-between; align-items: center; padding: 10px 5px 15px; font-weight: bold; color: white; }
-  .title { font-size: 20px; }
-  .update-time { font-size: 10px; color: #718096; font-weight: normal; }
-  .update-time span { color: #00ff66; }
-  
+  .title { font-size: 22px; display: flex; align-items: center; gap: 8px; }
+  .settings-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #a0aec0; }
+  .update-time { font-size: 13px; color: #718096; font-weight: normal; text-align: right; }
+  .update-time span { color: #00ff66; font-size: 15px; font-weight: bold; }
+
   .card { background: #121826; border: 1px solid #1f293d; border-radius: 12px; padding: 12px; margin-bottom: 12px; }
   .card-green { border-color: #00ff66; box-shadow: 0 0 10px rgba(0, 255, 102, 0.1); }
   .card-blue { border-color: #1e3a5f; }
   .card-green-dark { border-color: #1a3a2a; }
   .card-orange { border-color: #4a2a1a; }
-  
+
   h3 { font-size: 12px; color: #fff; margin-bottom: 10px; }
 
   .gauge-container { position: relative; width: 260px; height: 260px; margin: 0 auto; }
-  .gauge { width: 100%; height: 100%; } 
-  
-  .gauge-ticks { fill: none; stroke: #a0aec0; stroke-width: 4; stroke-dasharray: 2 15; stroke-dashoffset: 0; opacity: 0.5; stroke-dasharray: 2 12; stroke-dasharray: 2 16.5; stroke-dashoffset: -80; }
-  
+  .gauge { width: 100%; height: 100%; }
+
+  .gauge-ticks { fill: none; stroke: #a0aec0; stroke-width: 4; opacity: 0.5; stroke-dasharray: 2 16.5; stroke-dashoffset: -80; }
+
   .gauge-bg, .gauge-progress { fill: none; stroke-width: 14; stroke-linecap: round; stroke-dasharray: 400 534; }
   .gauge-bg { stroke: #1f293d; }
   .gauge-progress { stroke: url(#grad); stroke-dashoffset: 400; transition: stroke-dashoffset 1s ease-out; filter: drop-shadow(0px 0px 6px rgba(0, 255, 102, 0.6)); }
@@ -27,14 +28,14 @@
   .gauge-center { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); text-align: center; width: 100%; }
   .soc-text { font-size: 65px; font-weight: bold; color: #00ff66; text-shadow: 0 0 10px rgba(0,255,102,0.3); line-height: 1; margin-bottom: 15px; }
   .soc-text .unit { font-size: 24px; }
-  
-  .pill-box { display: inline-block; padding: 4px 15px; border-radius: 20px; border: 1px solid #00ff66; font-weight: bold; color: #fff; background: #0b101a; font-size: 14px; margin: 2px; }
-  .power-text { text-align: center; color: #a0aec0; font-size: 14px; margin-top: -15px; padding-bottom: 10px; }
-  .power-text span { color: #00ff66; font-weight: bold; }
+
+  .pill-box { display: inline-block; padding: 5px 16px; border-radius: 20px; border: 1px solid #00ff66; font-weight: bold; color: #fff; background: #0b101a; font-size: 18px; margin: 2px; }
+  .power-text { text-align: center; color: #a0aec0; font-size: 18px; margin-top: -15px; padding-bottom: 10px; }
+  .power-text span { color: #00ff66; font-weight: bold; font-size: 20px; }
 
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
   .stat-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
-  
+
   .blue-txt { color: #00e5ff; font-weight: bold; }
   .red-txt { color: #ff4d4d; font-weight: bold; }
   .white-txt { color: #fff; font-weight: bold; }
@@ -48,7 +49,37 @@
   .progress-fill { background: linear-gradient(90deg, #4dff00, #00ffff); height: 100%; width: 0%; transition: width 0.5s; box-shadow: 0 0 8px rgba(0,255,102,0.4); }
   .scale-labels { display: flex; justify-content: space-between; font-size: 10px; color: #718096; padding: 0 45px; }
 
+  .chart-controls { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
   .chart-buttons { display: flex; gap: 5px; }
   .btn-time { background: #1f293d; border: 1px solid #2d3548; color: #a0aec0; padding: 4px 10px; border-radius: 4px; font-size: 10px; cursor: pointer; transition: 0.2s; }
   .btn-time.active { background: #00ff66; color: #0b101a; font-weight: bold; border-color: #00ff66; }
+
+  .metric-select {
+    width: 100%; background: #1f293d; color: #fff; border: 1px solid #2d3548;
+    border-radius: 6px; padding: 6px 8px; font-size: 12px;
+  }
+
+  /* Settings Modal */
+  .modal-overlay {
+    display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.6); z-index: 100; justify-content: center; align-items: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-box {
+    background: #121826; border: 1px solid #1f293d; border-radius: 12px;
+    padding: 20px; width: 90%; max-width: 380px;
+  }
+  .modal-box h3 { font-size: 16px; margin-bottom: 16px; }
+  .form-group { margin-bottom: 14px; }
+  .form-group label { display: block; font-size: 12px; color: #a0aec0; margin-bottom: 6px; }
+  .form-group input, .form-group select {
+    width: 100%; background: #0b101a; color: #fff; border: 1px solid #2d3548;
+    border-radius: 6px; padding: 8px; font-size: 14px;
+  }
+  .modal-actions { display: flex; gap: 10px; margin-top: 18px; }
+  .modal-actions button {
+    flex: 1; padding: 10px; border-radius: 6px; border: none; font-weight: bold; cursor: pointer;
+  }
+  .btn-save { background: #00ff66; color: #0b101a; }
+  .btn-cancel { background: #1f293d; color: #a0aec0; }
 </style>
