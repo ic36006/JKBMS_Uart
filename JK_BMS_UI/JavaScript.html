@@ -114,7 +114,13 @@
       if (latest.batteryName) document.getElementById('battery-name').innerText = latest.batteryName;
 
       if (latest.cellVoltages) {
-        let cells = latest.cellVoltages.toString().split(',').map(Number);
+        let cells = latest.cellVoltages.toString().split(',').map(Number).filter(v => !isNaN(v));
+
+        // หาค่า min/max เฉพาะเซลล์ที่มีค่าจริง (>0) กันเซลล์ว่าง (0.000) ถูกนับผิด
+        let activeCells = cells.filter(v => v > 0);
+        let minVal = activeCells.length ? Math.min(...activeCells) : null;
+        let maxVal = activeCells.length ? Math.max(...activeCells) : null;
+
         cells.forEach((val, index) => {
           let cellNum = index + 1;
           let elementTxt = document.getElementById(`c${cellNum}-txt`);
@@ -123,6 +129,16 @@
             elementTxt.innerText = val.toFixed(3) + " V";
             let cellPct = ((val - 2.50) / (3.65 - 2.50)) * 100;
             elementBar.style.width = Math.min(100, Math.max(0, cellPct)) + '%';
+
+            // เคลียร์คลาสสีเดิมก่อน แล้วเซ็ตใหม่ตามเงื่อนไข
+            elementTxt.classList.remove('green-txt', 'red-txt', 'blue-txt');
+            if (val > 0 && val === minVal) {
+              elementTxt.classList.add('red-txt');
+            } else if (val > 0 && val === maxVal) {
+              elementTxt.classList.add('blue-txt');
+            } else {
+              elementTxt.classList.add('green-txt');
+            }
           }
         });
       }
